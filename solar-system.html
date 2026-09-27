@@ -828,7 +828,7 @@ void main(){
   // Контраст текстуры: тёмные участки темнее, яркие — ярче (только они попадают в bloom)
   vec3 tc = pow(c, vec3(1.2));
   // Немного тёплого белого поверх текстуры — Солнце жёлто-оранжевое, а не красное
-  vec3 col = (tc * 0.7 + vec3(1.0, 0.8, 0.45) * 0.3) * limb * limbTint * uIntensity;
+  vec3 col = (tc * 0.6 + vec3(1.0, 0.85, 0.55) * 0.4) * limb * limbTint * uIntensity;
   // ACES-тонмаппинг обесцвечивает яркие тона — заранее усиливаем насыщенность,
   // иначе оранжевая фотосфера выглядит бежевой
   float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -1129,7 +1129,7 @@ for (const def of BODIES) {
   if (b.id === 'sun') {
     b.material = new THREE.ShaderMaterial({
       vertexShader: S.sunVert, fragmentShader: S.sunFrag,
-      uniforms: { map: { value: tex(b.tex.map[0]) }, uTime: { value: 0 }, uIntensity: { value: 2.4 } },
+      uniforms: { map: { value: tex(b.tex.map[0]) }, uTime: { value: 0 }, uIntensity: { value: 2.9 } },
     });
   } else {
     b.material = makePlanetMaterial(b);

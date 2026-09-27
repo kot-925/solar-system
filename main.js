@@ -240,7 +240,7 @@ for (const def of BODIES) {
   if (b.id === 'sun') {
     b.material = new THREE.ShaderMaterial({
       vertexShader: S.sunVert, fragmentShader: S.sunFrag,
-      uniforms: { map: { value: tex(b.tex.map[0]) }, uTime: { value: 0 }, uIntensity: { value: 3.2 } },
+      uniforms: { map: { value: tex(b.tex.map[0]) }, uTime: { value: 0 }, uIntensity: { value: 1.7 } },
     });
   } else {
     b.material = makePlanetMaterial(b);

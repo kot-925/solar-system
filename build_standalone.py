@@ -67,5 +67,13 @@ html = patch(html, '<script type="module" src="main.js"></script>',
              '<script type="module">\n' + main.replace('</script', '<\\/script') + '\n</script>')
 html = patch(html, '</style>', '  #btnHD { display: none; }\n</style>')
 
+# Иконки встраиваем, чтобы файл оставался самодостаточным
+def data_uri(path):
+    return f'data:{mimetypes.guess_type(path.name)[0]};base64,' + base64.b64encode(path.read_bytes()).decode()
+html = patch(html, 'href="icons/favicon.ico" sizes="16x16 32x32 48x48"', f'href="{data_uri(ROOT / "icons/favicon-64.png")}" sizes="64x64"')
+html = re.sub(r'\n<link rel="icon" href="icons/favicon-64.png"[^>]*>', '', html)
+html = patch(html, 'href="icons/apple-touch-icon.png"', f'href="{data_uri(ROOT / "icons/apple-touch-icon.png")}"')
+html = re.sub(r'\n<link rel="manifest"[^>]*>', '', html)
+
 OUT.write_text(html, encoding='utf-8')
 print(f'{OUT.name}: {OUT.stat().st_size / 1e6:.1f} МБ, текстур: {len(needed)}')

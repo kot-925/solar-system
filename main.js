@@ -276,6 +276,7 @@ function queueUpload(bitmap, srgb, apply) {
 function processUploads() {
   if (!uploads.length) return;
   quality.skip = Math.max(quality.skip, 2);
+  if (bgDone < bgTotal || hdDone < hdTotal) updateStatus();
   const t0 = performance.now();
   while (uploads.length && performance.now() - t0 < 2) {
     const j = uploads[0];
@@ -740,15 +741,32 @@ function stepScale(dt) {
 
 // ---------------------------------------------------------------- Фоновая загрузка полноразмерных текстур
 const hdStatus = document.getElementById('hdStatus');
-let bgTotal = 0, bgDone = 0, hdPending = 0;
+const hdText = document.getElementById('hdText'), hdBar = document.getElementById('hdBar');
+let bgTotal = 0, bgDone = 0, hdTotal = 0, hdDone = 0;
+// Доля уже переданных на видеокарту кусков текущей текстуры — чтобы полоса двигалась плавно
+function uploadFrac() {
+  const j = uploads[0];
+  if (!j || !j.started) return 0;
+  const w = j.bitmap.width, h = j.bitmap.height;
+  return (j.y * w + j.x * Math.min(TILE, h - j.y)) / (w * h);
+}
 function updateStatus() {
+  let text = null, frac = 0;
   if (bgDone < bgTotal) {
-    hdStatus.textContent = `Загрузка текстур… ${Math.round((bgDone / bgTotal) * 100)}%`;
+    frac = Math.min(1, (bgDone + uploadFrac()) / bgTotal);
+    text = `Загрузка текстур — ${Math.round(frac * 100)}%`;
+  } else if (hdDone < hdTotal) {
+    frac = Math.min(1, (hdDone + uploadFrac()) / hdTotal);
+    text = `Текстуры 8K — ${Math.round(frac * 100)}%`;
+  }
+  if (text) {
+    hdText.textContent = text;
+    hdBar.style.width = (frac * 100).toFixed(1) + '%';
     hdStatus.classList.add('show');
-  } else if (hdPending > 0) {
-    hdStatus.textContent = 'Загрузка текстур высокого разрешения…';
-    hdStatus.classList.add('show');
-  } else hdStatus.classList.remove('show');
+  } else {
+    hdStatus.classList.remove('show');
+    hdTotal = hdDone = 0;
+  }
 }
 
 async function loadFullTextures() {
@@ -807,16 +825,18 @@ async function requestHD(b, keepFor = b) {
   if (!b || !hdEnabled) return;
   const wanted = [b, ...(b.parentBody ? [b.parentBody] : []), ...b.moons].flatMap(hdEntries).filter((e) => !hdActive.has(e));
   for (const e of wanted) hdActive.add(e);
-  hdPending += wanted.length;
+  hdTotal += wanted.length;
   updateStatus();
+  const finished = () => { hdDone++; updateStatus(); };
   // По одной: 8K-картинка декодируется ≈0,2 с на ядро, четыре сразу отнимали бы процессор у анимации.
   // Первой идёт текстура самого выбранного тела.
   for (const e of wanted) {
     try {
-      if (!hdActive.has(e)) continue;                   // фокус уже сменился
+      if (!hdActive.has(e)) { finished(); continue; }   // фокус уже сменился
       const bmp = await loadBitmap(e.list[1]);
-      if (!hdActive.has(e)) { bmp.close?.(); continue; }
+      if (!hdActive.has(e)) { bmp.close?.(); finished(); continue; }
       queueUpload(bmp, e.srgb, (t) => {
+        finished();
         if (!hdActive.has(e)) { t.dispose(); return; }
         const prev = e.hd;
         e.hd = t;
@@ -826,9 +846,7 @@ async function requestHD(b, keepFor = b) {
     } catch (err) {
       hdActive.delete(e);
       console.warn('HD недоступна', e.list[1], err);
-    } finally {
-      hdPending--;
-      updateStatus();
+      finished();
     }
   }
 }
@@ -1081,7 +1099,10 @@ addEventListener('resize', () => {
 async function start() {
   buildList();
   updateSpeedUI();
+  const progress = window.__loadProgress || (() => {});
+  progress(70);
   await Promise.all(previewPromises);       // превью встроены в previews.js — это мгновенно
+  progress(80);
   const d = daysJ2000(simTime);
   updateBodies(d);
   for (const b of bodies) if (b.orbitLine) updateOrbitLine(b, d);
@@ -1092,9 +1113,13 @@ async function start() {
   updateViewUniforms();
   // Шейдеры компилируются параллельно, не блокируя страницу
   try { await renderer.compileAsync(scene, camera); } catch { /* не критично */ }
+  progress(95);
   last = performance.now();
   requestAnimationFrame(frame);
-  requestAnimationFrame(() => $('loader').classList.add('done'));
+  requestAnimationFrame(() => {
+    progress(100);
+    setTimeout(() => $('loader').classList.add('done'), 150);   // чтобы заполненная полоса успела показаться
+  });
   loadFullTextures();
 }
 start();

@@ -115,7 +115,7 @@
     #header h1 { font-size: 14px; }
     #bodies { top: auto; bottom: 70px; left: 10px; right: 10px; width: auto; max-height: none; display: flex; overflow-x: auto; overflow-y: hidden; padding: 4px; }
     #bodies button, #bodies button.moon { width: auto; flex: none; padding: 6px 10px; }
-    #settings { top: 10px; right: 10px; max-width: calc(100% - 180px); padding: 5px; gap: 4px; }
+    #settings { top: 72px; left: 10px; right: auto; max-width: calc(100% - 20px); padding: 5px; gap: 4px; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
     .chip { padding: 5px 8px; font-size: 12px; }
     #time { bottom: 10px; left: 10px; right: 10px; transform: none; justify-content: space-between; }
     #speed { flex: 1; width: auto; min-width: 60px; }
@@ -128,14 +128,12 @@
     #hint { display: none; }
   }
 </style>
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-  }
-}
-</script>
+<!-- Модули грузим параллельно, а не цепочкой: браузер узнаёт о них сразу -->
+<link rel="modulepreload" href="main.js">
+<link rel="modulepreload" href="vendor/three.js">
+<link rel="modulepreload" href="previews.js">
+<link rel="modulepreload" href="data.js">
+<link rel="modulepreload" href="shaders.js">
 </head>
 <body>
 <div id="scene"></div>
@@ -172,18 +170,18 @@
   <button class="chip" id="btnNow" title="Текущая дата, реальное время">Сейчас</button>
 </div>
 
-<div id="hdStatus">Загрузка текстур 8K…</div>
+<div id="hdStatus"></div>
 <div id="hint">Перетаскивание — вращение · колесо — масштаб · ПКМ — сдвиг · клик — выбрать · Esc — обзор</div>
 
 <div id="loader">
   <div class="inner">
     <div class="title">Солнечная система</div>
-    <div class="bar"><i id="loadBar"></i></div>
-    <div class="pct" id="loadPct">Загрузка текстур…</div>
+        <div class="pct" id="loadPct">Загрузка…</div>
     <div id="error">Не удалось загрузить сцену. Откройте страницу через локальный сервер:<br><code>python3 -m http.server 8000</code></div>
   </div>
 </div>
 
+<script id="fileCheck">if (location.protocol === 'file:') document.getElementById('error').style.display = 'block';</script>
 <script type="module" src="main.js"></script>
 </body>
 </html>

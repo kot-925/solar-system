@@ -49,6 +49,37 @@ float snoise(vec3 v){
 }
 `;
 
+// Затмения: тени других тел (спутник на планете, планета на спутнике) с полутенью.
+// uOcc — центр (view space) и радиус затеняющего тела, uSunAng — угловой радиус Солнца
+// (по реальным расстояниям), uOccRes — свет, остающийся в полной тени (у Земли — красный,
+// преломлённый атмосферой: так Луна краснеет при лунном затмении).
+const eclipse = /* glsl */`
+#if OCC_N > 0
+uniform vec4 uOcc[OCC_N];
+uniform vec3 uOccRes[OCC_N];
+uniform float uSunAng;
+vec3 eclipse(vec3 P, vec3 L) {
+  vec3 light = vec3(1.0);
+  for (int k = 0; k < OCC_N; k++) {
+    vec3 toC = uOcc[k].xyz - P;
+    float dc = length(toC);
+    if (dc <= uOcc[k].w) continue;
+    vec3 dirC = toC / dc;
+    float c = dot(dirC, L);
+    if (c <= 0.0) continue;
+    float th = atan(length(cross(dirC, L)), c);
+    float ao = asin(uOcc[k].w / dc);
+    float cover = 1.0 - smoothstep(abs(ao - uSunAng), ao + uSunAng, th);
+    float depth = min(1.0, (ao * ao) / (uSunAng * uSunAng));
+    light *= mix(vec3(1.0), uOccRes[k], cover * depth);
+  }
+  return light;
+}
+#else
+vec3 eclipse(vec3 P, vec3 L) { return vec3(1.0); }
+#endif
+`;
+
 // ---------- Поверхность планеты / спутника ----------
 export const planetVert = /* glsl */`
 #include <common>
@@ -104,7 +135,7 @@ varying vec2 vUv;
 varying vec3 vViewPos;
 varying vec3 vViewNormal;
 varying vec3 vViewTangent;
-
+${eclipse}
 float lum(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
 
 // Рельеф из яркости текстуры (метод Мортена Миккельсена, как в three.js bumpmap)
@@ -177,14 +208,15 @@ void main(){
   albedo *= 1.0 - 0.5 * cloud; // тень облаков
 #endif
 
-  vec3 col = albedo * lightCol * diff * shadow * uLight + albedo * uAmbient;
+  vec3 sunLight = lightCol * shadow * eclipse(vViewPos, L) * uLight;
+  vec3 col = albedo * diff * sunLight + albedo * uAmbient;
 
 #ifdef EARTH
   // Солнечный блик только на воде
   float ocean = texture2D(specMap, vUv).r;
   vec3 H = normalize(L + V);
   float spec = pow(max(dot(Ng, H), 0.0), 160.0) * 0.9 + pow(max(dot(Ng, H), 0.0), 18.0) * 0.05;
-  col += vec3(1.0, 0.92, 0.8) * spec * ocean * (1.0 - cloud) * smoothstep(0.0, 0.15, NgdL) * uLight;
+  col += vec3(1.0, 0.92, 0.8) * spec * ocean * (1.0 - cloud) * smoothstep(0.0, 0.15, NgdL) * sunLight;
   // Огни городов на ночной стороне
   vec3 night = texture2D(nightMap, vUv).rgb;
   float dark = smoothstep(0.08, -0.18, NgdL);
@@ -215,6 +247,7 @@ varying vec2 vUv;
 varying vec3 vViewPos;
 varying vec3 vViewNormal;
 varying vec3 vViewTangent;
+${eclipse}
 void main(){
   #include <logdepthbuf_fragment>
   float a = texture2D(map, vUv).r;
@@ -223,7 +256,7 @@ void main(){
   float NdL = dot(N, L);
   float diff = smoothstep(-0.12, 1.0, NdL);
   vec3 tint = mix(vec3(1.0, 0.5, 0.25), vec3(1.0), smoothstep(-0.02, 0.25, NdL));
-  gl_FragColor = vec4(vec3(0.95) * tint * diff * uLight + 0.004, a * 0.95);
+  gl_FragColor = vec4(vec3(0.95) * tint * diff * eclipse(vViewPos, L) * uLight + 0.004, a * 0.95);
 }
 `;
 
@@ -416,5 +449,53 @@ void main(){
   float edge = smoothstep(1.0, 0.6, d);
   vec3 col = vec3(1.0, 0.82, 0.6) * corona * 0.9 + vec3(1.0, 0.9, 0.75) * glare * uGlare;
   gl_FragColor = vec4(col * edge, 1.0);
+}
+`;
+
+// ---------- Пояс астероидов и пояс Койпера: движение по Кеплеру прямо в вершинном шейдере ----------
+export const beltVert = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec4 aOrbit;   // a (а.е.), e, i, Ω
+attribute vec4 aPhase;   // ω, M0, n (рад/сут), яркость
+attribute vec3 aColor;
+uniform float uDays;
+uniform float uScaleT;
+uniform float uSize;
+varying vec3 vColor;
+float kepler(float M, float e) {
+  float E = M + e * sin(M);
+  for (int k = 0; k < 4; k++) E -= (E - e * sin(E) - M) / (1.0 - e * cos(E));
+  return E;
+}
+void main() {
+  float a = aOrbit.x, e = aOrbit.y, inc = aOrbit.z, O = aOrbit.w, w = aPhase.x;
+  float E = kepler(mod(aPhase.y + aPhase.z * uDays, 6.2831853), e);
+  float xp = a * (cos(E) - e), yp = a * sqrt(1.0 - e * e) * sin(E);
+  float cO = cos(O), sO = sin(O), cw = cos(w), sw = sin(w), ci = cos(inc), si = sin(inc);
+  float x = (cw * cO - sw * sO * ci) * xp + (-sw * cO - cw * sO * ci) * yp;
+  float y = (cw * sO + sw * cO * ci) * xp + (-sw * sO + cw * cO * ci) * yp;
+  float z = (sw * si) * xp + (cw * si) * yp;
+  vec3 p = vec3(x, z, -y);
+  float r = length(p);
+  // Тот же масштаб, что и у планет: наглядный (80·√r) ↔ реальный (1 ед. = 1000 км)
+  float dist = exp(mix(log(80.0 * sqrt(r)), log(r * 149597.8707), uScaleT));
+  vColor = aColor * aPhase.w;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p / r * dist, 1.0);
+  gl_PointSize = uSize;
+  #include <logdepthbuf_vertex>
+}
+`;
+
+export const beltFrag = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+varying vec3 vColor;
+void main() {
+  #include <logdepthbuf_fragment>
+  vec2 c = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(c, c);
+  if (d > 1.0) discard;
+  gl_FragColor = vec4(vColor * (1.0 - d * 0.6), 1.0);
 }
 `;
